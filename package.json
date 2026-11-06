@@ -1,0 +1,13 @@
+{
+	"name": "omp-herdr-name-bridge",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"description": "Local Herdr 2 tab and OMP session name synchronization",
+	"omp": { "extensions": ["./src/index.ts"] },
+	"scripts": {
+		"test": "bun test",
+		"verify": "bun run scripts/verify.ts"
+	},
+	"peerDependencies": { "@oh-my-pi/pi-coding-agent": ">=18.16.0" }
+}
