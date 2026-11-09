@@ -147,7 +147,8 @@ export function terminalTab(world: HerdrSnapshot, address: string): TabFact | un
 }
 
 export async function appCommand(home: string, command: string, args?: JsonObject): Promise<unknown> {
-	const argv = command === "ls" ? ["ls"] : ["do", command, JSON.stringify(args)];
+	const argv = command === "ls" ? ["ls"] : ["do", command];
+	if (command !== "ls" && args !== undefined) argv.push(JSON.stringify(args));
 	const reply = await execute("herdr-app", argv, { env: { ...process.env, HERDR_APP_HOME: home }, timeout: 3000, maxBuffer: 2 * 1024 * 1024 });
 	const parsed = object(JSON.parse(reply.stdout));
 	if (parsed.error) throw new Error(`Herdr app rejected command: ${String(parsed.error)}`);

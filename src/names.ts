@@ -6,13 +6,14 @@ export interface NameSnapshot {
 
 export interface NameBaseline extends NameSnapshot {
 	pendingTab?: { before: string; target: string; until: number };
+	manualTab?: true;
 }
 
 export type NameDecision =
 	| { kind: "settled"; baseline: NameBaseline }
 	| { kind: "waiting" }
 	| { kind: "renameTab"; name: string }
-	| { kind: "renameOmp"; name: string };
+	| { kind: "renameOmp"; name: string; baseline: NameBaseline };
 
 export function nameDecision(previous: NameBaseline | undefined, current: NameSnapshot, now: number): NameDecision {
 	if (previous?.binding !== current.binding) {
@@ -22,12 +23,15 @@ export function nameDecision(previous: NameBaseline | undefined, current: NameSn
 	}
 	const pending = previous.pendingTab;
 	if (pending && current.tab === pending.before && now < pending.until) return { kind: "waiting" };
-	if (current.omp === current.tab) return { kind: "settled", baseline: current };
+	const tabChanged = current.tab !== previous.tab && current.tab !== pending?.target;
+	const manualTab = previous.manualTab || tabChanged;
+	const baseline: NameBaseline = manualTab ? { ...current, manualTab: true } : current;
+	if (tabChanged && current.tab) return { kind: "renameOmp", name: current.tab, baseline };
+	if (manualTab || current.omp === current.tab) return { kind: "settled", baseline };
 	if (current.omp !== previous.omp || (pending && current.tab === pending.before)) {
 		return current.omp ? { kind: "renameTab", name: current.omp } : { kind: "waiting" };
 	}
-	if (current.tab !== previous.tab && current.tab) return { kind: "renameOmp", name: current.tab };
-	return { kind: "settled", baseline: current };
+	return { kind: "settled", baseline };
 }
 
 export function validName(raw: unknown): string {

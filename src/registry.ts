@@ -74,6 +74,19 @@ export class Registry {
 		}
 		return occupants === 1;
 	}
+	async manualTab(tab: string): Promise<boolean> {
+		try {
+			const ownership = await readFile(join(this.directory, `${tab}.manual`), "utf8");
+			if (ownership !== "1") throw new Error("Invalid manual tab ownership record");
+			return true;
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+			throw error;
+		}
+	}
+	async claimTab(tab: string): Promise<void> {
+		await writeFile(join(this.directory, `${tab}.manual`), "1", { mode: 0o600 });
+	}
 	async remove(): Promise<void> { await unlink(this.path).catch(ignoreMissing); }
 }
 

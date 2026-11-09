@@ -62,3 +62,25 @@ test("a demonstrably exited owner's registration is removed", async () => {
 		expect(await first.unique(world(core), record(first.runtime))).toBe(true);
 	} finally { await rm(first.directory, { recursive: true, force: true }); }
 });
+
+test("manual tab ownership survives runtime cleanup and is scoped to the core and tab", async () => {
+	const core = randomUUID();
+	const first = new Registry(core, randomUUID());
+	const restarted = new Registry(core, randomUUID());
+	const other = new Registry(randomUUID(), randomUUID());
+	try {
+		await first.publish(record(first.runtime));
+		expect(await first.manualTab("tab")).toBe(false);
+		await first.claimTab("tab");
+		await first.remove();
+		await restarted.publish(record(restarted.runtime));
+		expect(await restarted.manualTab("tab")).toBe(true);
+		expect(await restarted.manualTab("other-tab")).toBe(false);
+		await other.publish(record(other.runtime));
+		expect(await other.manualTab("tab")).toBe(false);
+		expect(await restarted.unique(world(core), record(restarted.runtime))).toBe(true);
+	} finally {
+		await rm(first.directory, { recursive: true, force: true });
+		await rm(other.directory, { recursive: true, force: true });
+	}
+});

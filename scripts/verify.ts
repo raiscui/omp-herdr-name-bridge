@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, writeFile, readFile, readdir, rm } from "node:fs/promises";
+import { createConnection } from "node:net";
 import { join, resolve } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -35,11 +36,27 @@ const clients: OmpClient[] = [];
 let appProcess: Bun.Subprocess | undefined;
 let registryDirectory: string | undefined;
 
+function appRunning(): Promise<boolean> {
+	const { promise, resolve, reject } = Promise.withResolvers<boolean>();
+	const socket = createConnection(join(home, "herdr-app.sock"));
+	socket.setTimeout(1000, () => { socket.destroy(); reject(new Error("App control socket probe timed out")); });
+	socket.once("connect", () => { socket.destroy(); resolve(true); });
+	socket.once("error", (error: NodeJS.ErrnoException) => {
+		socket.destroy();
+		if (error.code === "ENOENT" || error.code === "ECONNREFUSED") resolve(false);
+		else reject(error);
+	});
+	return promise;
+}
+
 async function closeApp(): Promise<void> {
-	if (!appProcess || appProcess.exitCode !== null) return;
-	try { await appCommand(home, "app.quit"); } catch { appProcess.kill(); }
+	if (!appProcess) return;
+	// macOS 启动器退出不代表持有控制 socket 的实际应用已退出.
+	if (await appRunning()) await appCommand(home, "app.quit");
+	else if (appProcess.exitCode === null) appProcess.kill();
 	const timeout = setTimeout(() => appProcess?.kill(), 5000);
 	try { await appProcess.exited; } finally { clearTimeout(timeout); }
+	await until("isolated app control socket closed", async () => !await appRunning(), 5000);
 }
 
 async function until(label: string, predicate: () => Promise<boolean>, timeout = 20000): Promise<void> {
@@ -170,12 +187,17 @@ try {
 	assert.equal(await first.name(), "Second tab rename");
 	assert.equal(await tabName(), "Second tab rename");
 	console.log("PASS equal-name loop prevention");
+	await first.local("/rename Independent OMP");
+	await Bun.sleep(2300);
+	assert.equal(await first.name(), "Independent OMP");
+	assert.equal(await tabName(), "Second tab rename");
+	console.log("PASS manual tab ownership blocks later OMP names");
 	const second = new OmpClient(terminal, "Second OMP", 2);
 	await second.command("get_state");
 	await until("two runtime registrations", async () => (await readdir(registryDirectory!)).filter(name => name.endsWith(".json")).length === 2);
 	await appCommand(home, "tab.rename", { id: createdTab.id, name: "Paused tab" });
 	await Bun.sleep(2300);
-	assert.equal(await first.name(), "Second tab rename");
+	assert.equal(await first.name(), "Independent OMP");
 	assert.equal(await second.name(), "Second OMP");
 	assert.equal(await tabName(), "Paused tab");
 	console.log("PASS multiple OMP instances pause both directions");
@@ -188,9 +210,23 @@ try {
 	console.log("PASS automatic numbering never becomes an OMP rename");
 	await first.command("new_session");
 	await first.local("/rename Switched session");
-	await until("session switch rebinds", async () => await tabName() === "Switched session");
+	await Bun.sleep(2300);
+	assert.equal(await first.name(), "Switched session");
+	assert.equal(await tabName(), "");
+	console.log("PASS session switch preserves manual tab ownership");
+	await appCommand(home, "tab.rename", { id: createdTab.id, name: "After switch" });
+	await until("tab rename still reaches switched session", async () => await first.name() === "After switch");
 	await first.close();
 	await until("shutdown removes owned registration", async () => (await readdir(registryDirectory!)).every(name => !name.endsWith(".json")));
+	const restarted = new OmpClient(terminal, "Restarted OMP", 1);
+	await restarted.command("get_state");
+	await until("restarted runtime registration", async () => (await readdir(registryDirectory!)).some(name => name.endsWith(".json")));
+	await restarted.local("/rename Renamed after restart");
+	await Bun.sleep(2300);
+	assert.equal(await restarted.name(), "Renamed after restart");
+	assert.equal(await tabName(), "After switch");
+	console.log("PASS OMP restart preserves manual tab ownership");
+	await restarted.close();
 	console.log(`PASS real core/app/OMP naming paths. Scratch evidence ${root}`);
 } catch (error) {
 	console.error(error);

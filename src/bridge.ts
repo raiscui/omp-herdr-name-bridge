@@ -71,9 +71,13 @@ export class NameBridge {
 		if (!this.current(epoch)) return "session changed";
 		const binding = `${world.core}/${tab.id}/${this.epoch}`;
 		const observed: NameSnapshot = { binding, omp: validName(this.host.getName() || ""), tab: tab.name };
-		const previous = this.baselines.get(binding);
+		let previous = this.baselines.get(binding);
+		if (await this.registry!.manualTab(tab.id)) previous = { ...(previous ?? observed), manualTab: true };
 		const decision = nameDecision(previous, observed, Date.now());
-		if (decision.kind === "settled") this.baselines.set(binding, decision.baseline);
+		if (decision.kind === "settled") {
+			if (decision.baseline.manualTab && !previous?.manualTab) await this.registry!.claimTab(tab.id);
+			this.baselines.set(binding, decision.baseline);
+		}
 		if (decision.kind === "settled" || decision.kind === "waiting") return decision.kind;
 		const fresh = await snapshot(endpoint);
 		const freshTab = terminalTab(fresh, this.terminal);
@@ -85,11 +89,12 @@ export class NameBridge {
 			this.baselines.set(binding, { ...observed, pendingTab: { before: observed.tab, target: decision.name, until: Date.now() + 5000 } });
 			return "waiting for tab acknowledgement";
 		}
+		await this.registry!.claimTab(tab.id);
 		await this.host.setName(decision.name);
 		if (this.current(epoch)) {
 			const applied = validName(this.host.getName() || "");
 			if (applied === observed.omp && applied !== decision.name) throw new Error("OMP refused the tab rename");
-			this.baselines.set(binding, { ...observed, omp: applied });
+			this.baselines.set(binding, { ...decision.baseline, omp: applied });
 		}
 		return "session renamed";
 	}

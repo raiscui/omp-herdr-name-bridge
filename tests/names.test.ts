@@ -16,27 +16,44 @@ describe("bidirectional names", () => {
 		expect(nameDecision(baseline, current("new", "first"), 0)).toEqual({ kind: "renameTab", name: "new" });
 	});
 	test("tab rename updates OMP", () => {
-		expect(nameDecision(baseline, current("first", "new"), 0)).toEqual({ kind: "renameOmp", name: "new" });
+		expect(nameDecision(baseline, current("first", "new"), 0)).toEqual({ kind: "renameOmp", name: "new", baseline: { ...current("first", "new"), manualTab: true } });
 	});
 	test("equal names never issue another rename", () => {
 		expect(nameDecision(baseline, current("first", "first"), 0).kind).toBe("settled");
 	});
-	test("simultaneous changes prefer OMP", () => {
-		expect(nameDecision(baseline, current("omp", "tab"), 0)).toEqual({ kind: "renameTab", name: "omp" });
+	test("a manual tab rename wins simultaneous changes and keeps ownership", () => {
+		const decision = nameDecision(baseline, current("omp", "tab"), 0);
+		expect(decision).toEqual({ kind: "renameOmp", name: "tab", baseline: { ...current("omp", "tab"), manualTab: true } });
+		if (decision.kind !== "renameOmp") throw new Error("Expected a manual tab rename");
+		const owned = { ...decision.baseline, omp: "tab" };
+		expect(nameDecision(owned, current("later OMP title", "tab"), 1)).toEqual({
+			kind: "settled", baseline: { ...current("later OMP title", "tab"), manualTab: true },
+		});
 	});
-	test("clearing a tab does not rename OMP or restore the old tab name", () => {
+	test("clearing a tab also prevents later OMP names from restoring it", () => {
 		const cleared = current("first", "");
-		expect(nameDecision(baseline, cleared, 0)).toEqual({ kind: "settled", baseline: cleared });
-		expect(nameDecision(cleared, current("later", ""), 0)).toEqual({ kind: "renameTab", name: "later" });
+		const owned = { ...cleared, manualTab: true as const };
+		expect(nameDecision(baseline, cleared, 0)).toEqual({ kind: "settled", baseline: owned });
+		expect(nameDecision(owned, current("later", ""), 0)).toEqual({
+			kind: "settled", baseline: { ...current("later", ""), manualTab: true },
+		});
 	});
 	test("pending app writes cannot echo an old tab name into OMP", () => {
 		const pending = { ...current("new", "first"), pendingTab: { before: "first", target: "new", until: 5000 } };
 		expect(nameDecision(pending, current("new", "first"), 1000).kind).toBe("waiting");
 		expect(nameDecision(pending, current("new", "first"), 5001)).toEqual({ kind: "renameTab", name: "new" });
-		expect(nameDecision(pending, current("new", "user override"), 1000)).toEqual({ kind: "renameOmp", name: "user override" });
+		expect(nameDecision(pending, current("new", "user override"), 1000)).toEqual({
+			kind: "renameOmp", name: "user override", baseline: { ...current("new", "user override"), manualTab: true },
+		});
 	});
 	test("a session switch establishes a new initial priority", () => {
 		expect(nameDecision(baseline, { ...current("new session", "first"), binding: "core/tab/2" }, 0)).toEqual({ kind: "renameTab", name: "new session" });
+	});
+	test("an automatic tab acknowledgement does not claim manual ownership", () => {
+		const pending = { ...current("new", "first"), pendingTab: { before: "first", target: "new", until: 5000 } };
+		const acknowledged = nameDecision(pending, current("new", "new"), 1000);
+		expect(acknowledged).toEqual({ kind: "settled", baseline: current("new", "new") });
+		expect(nameDecision(current("new", "new"), current("later", "new"), 2000)).toEqual({ kind: "renameTab", name: "later" });
 	});
 	test("name boundary rejects control characters and oversized text", () => {
 		expect(() => validName("bad\nname")).toThrow();
