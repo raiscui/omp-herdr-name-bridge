@@ -18,6 +18,7 @@ export default function herdrNameBridge(pi: ExtensionAPI): void {
 
 	async function tick(): Promise<void> {
 		if (closing || !bridge || !context) return;
+		void bridge.startCopy().catch(() => undefined);
 		try { status(await bridge.synchronize()); }
 		catch (error) { status(`paused: ${error instanceof Error ? error.message : String(error)}`); }
 		if (!closing) timer = context.setTimeout(tick, 1000);

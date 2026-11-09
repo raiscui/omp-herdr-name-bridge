@@ -11,6 +11,7 @@
 - 观察到非桥接写入的标签页改名后锁定该 tab, 包括清空名称; 同轮双方都改变时, 标签页优先.
 - 同一标签页存在多个已注册的 OMP 实例时暂停同步, 恢复为一个实例后继续.
 - 手动接管记录按 core ID 和 tab ID 保存, 切换会话和重启 OMP 不会解除; 临时断连保留比较基线.
+- 可选个人 Herdr layout 在展开的本机 OMP 行提供复制当前 session ID 的按钮.
 
 ## 环境要求
 
@@ -39,13 +40,37 @@ omp4 plugin link /absolute/path/to/omp-herdr-name-bridge
 
 请将示例绝对路径替换为实际克隆目录. 建议在每个交互使用的 profile 中启用扩展, 以便识别同一标签页里的多个 OMP 实例.
 
-安装后, 在 Herdr 中启动新的 OMP 进程. 已运行的进程不会因链接操作自动加载扩展, 无需修改 Herdr 安装包或安装 app mod.
+安装后, 在 Herdr 中启动新的 OMP 进程. 已运行的进程不会因链接操作自动加载扩展, 需要重新加载扩展或启动新进程. 名称同步不需要安装 app mod.
+
+### 安装 session ID 复制按钮
+
+先确认当前 OMP profile 已链接本项目. 然后在目标 Herdr 窗口的环境中执行:
+
+```sh
+bun run scripts/install-copy.ts
+```
+
+脚本通过 Herdr 克隆 `agents` 为个人 mod `omp-agents`, 克隆 `main` 为个人 layout `omp-main`, 并将后者的 agents 引用改为个人 mod. `layout.clone` 会切换当前窗口的布局. 脚本会对个人 mod 运行 `herdr-app check`, 读取 `herdr-app status`, 并保存 `herdr-app shot` 截图, 路径写在输出中.
+
+脚本拒绝覆盖已有的 `omp-agents` 或 `omp-main`. 如果安装中断, 检查已创建的个人文件, 确认如何保留或移走它们后再重试. 如果 Herdr 升级后脚本提示模板不兼容, 不要修改 shipped 文件来绕过检查. 安装脚本将当前 Bun 和此仓库 helper 的绝对路径写入个人 mod, 移动 Bun 或仓库后需重新安装个人副本.
+
+只恢复默认布局时运行:
+
+```sh
+herdr-app do layout.switch '{"name":"main"}'
+```
+
+这不会删除个人副本. 目标窗口使用自定义 home 时, 上述命令和安装脚本均需设置对应的 `HERDR_APP_HOME`.
 
 ## 使用
 
 1. 在 Herdr 标签页内启动已启用扩展的 OMP.
 2. 在 OMP 中执行 `/rename 项目名称`, 或等待 OMP 产生会话标题.
 3. 查看对应 Herdr 标签页名称. 在 Herdr 中使用 Rename Tab 后, 该 tab 不再跟随 OMP 改名; Herdr 中的后续非空名称仍会同步到 OMP.
+
+在个人 `omp-main` 布局中, 鼠标悬停普通展开 OMP 行时, 点击 pin 左侧的复制图标. 成功通知不包含 ID. 剪贴板只接收 session ID, 不包含路径或换行. 非 OMP, 远程终端, 无法确认身份的行, 窄栏及子树行不显示按钮.
+
+按钮可见性只缓存短期可用状态. 点击时重新核对完整目标和活 OMP host, 从 host 的 session manager 读取 ID. 读取之后如果发生 session 切换, 剪贴板仍可能收到读取时的 ID, 这不是跨进程原子操作.
 
 扩展没有额外操作命令. 每次同步完成后约一秒开始下一轮检查; core 请求超时为两秒, app 命令超时为三秒, 因此这不是实时或事务式同步.
 
@@ -75,6 +100,7 @@ omp4 plugin link /absolute/path/to/omp-herdr-name-bridge
 | `HC_SOCKET` | 指定本地 core 的 Unix socket; 未提供时使用 core 配置与 `HC_SESSION` 端点规则 |
 | `HC_SESSION` | 在解析 core 端点时使用的会话标识 |
 | `HERDR_APP_HOME` | 精确选择目标 app 窗口的 home, 默认 `~/.config/herdr-app`, 必须为绝对路径 |
+| `OMP_HERDR_BRIDGE_REGISTRY` | 隔离验证用的私有注册目录, 必须为绝对路径. 日常使用无需设置 |
 
 使用不同 home 启动多个 Herdr 窗口时, 在启动 OMP 前提供对应的 `HERDR_APP_HOME`. 扩展不会搜索当前聚焦窗口, 也不会在目标不可用时回退到其他窗口.
 
@@ -93,6 +119,8 @@ omp4 plugin link /absolute/path/to/omp-herdr-name-bridge
 - **没有同步**: 确认 OMP 在 Herdr 本地终端中启动, 扩展已在当前 profile 加载, `hc` 和 `herdr-app` 可执行, 目标窗口仍打开, `HERDR_APP_HOME` 指向正确 home.
 - **显示 `Herdr names paused`**: 根据状态原因检查多实例, 终端归属, core/app 连接或文档兼容性. 归属未确认时扩展不会强行写入.
 - **多个实例未被识别**: 注册是协作式的. 没有加载扩展的 OMP 不可见, print/JSON host 和内部子代理也不注册. 顶层 TUI 与 RPC host 才参与, 不能把注册表视为所有 OS 进程的完整清单.
+- **没有复制按钮**: 先确认选择了 `omp-main`, 行为本机展开 OMP 行, OMP 前台进程加载了本版本扩展, 并且当前窗口与 OMP 的 `HERDR_APP_HOME` 相同. 终端前台 PID, app/core 成员, session 或活 host 无法确认时按钮隐藏. 同一 terminal 有多个已注册运行实例时也隐藏.
+- **复制后切换会话**: 点击重新查询, 不复制注册表里的旧 ID. 结果对应 host 同步读取 ID 的时刻, 不保证写入剪贴板时尚未切换.
 - **快速连续改名**: 轮询可能跳过两次检查之间的中间名称. 接管依据是观察到的名称变化, 不能识别首次绑定前的历史改名, 提交相同名称, 或两次轮询间改名又恢复. 桥自身写入的目标确认不会触发接管. 公开 API 没有条件版本写入, 最后一次预检之后仍存在并发变化窗口, 不承诺事务一致性.
 - **Herdr 升级后暂停**: 原始标签名读取依赖当前 app 序列化结构, 不兼容时停止同步, 不通过直接写布局绕过检查. 重启 OMP 后仍读取同一 core/tab 的接管记录; 没有记录才采用初始 OMP 优先规则.
 
@@ -114,6 +142,23 @@ bun run verify
 
 集成验证覆盖初始命名优先级, 自动标题, `/rename`, 连续标签改名, 手动接管后 OMP 改名不覆盖, 同名防回写, 多实例暂停与恢复, 空名称, 会话切换, OMP 重启和退出清理. 脚本会输出保留的临时日志路径. 协议验证通过不等于 GUI 视觉验收, 渲染效果需要另外查看真实窗口.
 
+### 隔离窗口中的复制验收
+
+```sh
+bun run scripts/copy-ui-fixture.ts
+```
+
+fixture 创建独立 home, core, app 和 registry, 通过 Herdr 创建真实的前台 OMP TUI, 再安装个人副本. 它不使用外部 RPC host 冒充 terminal. `READY` 后输出临时目录和 `evidence.json`, 文件包含完整目标, 实时查询结果与 core 报告的前台 PID. fixture 保持窗口和 OMP 运行, 按 Enter 后只关闭它自己创建的 terminal, app 和 core.
+
+在另一个终端中, 将以下路径替换为 fixture 输出的目录:
+
+```sh
+HERDR_APP_HOME=/tmp/ocui-XXXXXX/app herdr-app status
+HERDR_APP_HOME=/tmp/ocui-XXXXXX/app herdr-app shot /tmp/ocui-XXXXXX/after.png
+```
+
+在隔离窗口手动检查普通展开行的 hover 图标及 pin, 并在允许使用测试剪贴板时点击复制. 切换该 OMP 的 session 后再次点击, 将剪贴板值与该次实时查询对照. 如无法操纵窗口或读取剪贴板, 只报告截图和查询证据, 不宣称点击验收通过. fixture 本身不写剪贴板, 截图不证明点击已执行.
+
 ### 代码结构
 
 | 文件 | 职责 |
@@ -123,6 +168,9 @@ bun run verify
 | `src/herdr.ts` | core/app 读取, 终端归属校验和指定标签页改名 |
 | `src/registry.ts` | 本地运行时注册与成员判定 |
 | `src/bridge.ts` | 绑定 epoch, 写入前复核与双向同步编排 |
+| `src/copy-types.ts`, `src/copy-target.ts` | 复制目标, 活 runtime 身份和完整成员校验 |
+| `src/copy-socket.ts`, `src/copy-query.ts` | 私有 socket 查询与有界候选发现 |
+| `scripts/copy-session.js`, `scripts/install-copy.ts` | 个人 mod 适配与克隆安装 |
 
 ## 卸载
 
